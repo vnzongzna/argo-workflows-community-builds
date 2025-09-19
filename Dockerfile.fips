@@ -1,0 +1,141 @@
+#syntax=docker/dockerfile:1.2
+ARG GIT_COMMIT=unknown
+ARG GIT_TAG=unknown
+ARG GIT_TREE_STATE=unknown
+
+FROM registry.access.redhat.com/ubi9/go-toolset:1.24 AS builder
+
+# Install dependencies
+RUN microdnf update -y && microdnf install -y \
+    git \
+    make \
+    ca-certificates \
+    wget \
+    curl \
+    gcc \
+    glibc-devel \
+    tar \
+    gzip \
+    which \
+    && microdnf clean all
+
+WORKDIR /go/src/github.com/argoproj/argo-workflows
+COPY go.mod .
+COPY go.sum .
+RUN --mount=type=cache,target=/go/pkg/mod GOEXPERIMENT=boringcrypto go mod download
+
+COPY . .
+
+####################################################################################################
+
+FROM node:20-alpine as argo-ui
+
+RUN apk update && apk add --no-cache git
+
+COPY ui/package.json ui/yarn.lock ui/
+
+RUN --mount=type=cache,target=/root/.yarn \
+  YARN_CACHE_FOLDER=/root/.yarn JOBS=max \
+  yarn --cwd ui install --network-timeout 1000000
+
+COPY ui ui
+COPY api api
+
+RUN --mount=type=cache,target=/root/.yarn \
+  YARN_CACHE_FOLDER=/root/.yarn JOBS=max \
+  NODE_OPTIONS="--max-old-space-size=2048" JOBS=max yarn --cwd ui build
+
+####################################################################################################
+
+FROM builder as argoexec-build
+
+ARG GIT_COMMIT
+ARG GIT_TAG
+ARG GIT_TREE_STATE
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build GOEXPERIMENT=boringcrypto make dist/argoexec GIT_COMMIT=${GIT_COMMIT} GIT_TAG=${GIT_TAG} GIT_TREE_STATE=${GIT_TREE_STATE}
+
+####################################################################################################
+
+FROM builder as workflow-controller-build
+
+ARG GIT_COMMIT
+ARG GIT_TAG
+ARG GIT_TREE_STATE
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build GOEXPERIMENT=boringcrypto make dist/workflow-controller GIT_COMMIT=${GIT_COMMIT} GIT_TAG=${GIT_TAG} GIT_TREE_STATE=${GIT_TREE_STATE}
+
+####################################################################################################
+
+FROM builder as argocli-build
+
+ARG GIT_COMMIT
+ARG GIT_TAG
+ARG GIT_TREE_STATE
+
+RUN mkdir -p ui/dist
+COPY --from=argo-ui ui/dist/app ui/dist/app
+# update timestamp so that `make` doesn't try to rebuild this -- it was already built in the previous stage
+RUN touch ui/dist/app/index.html
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build GOEXPERIMENT=boringcrypto STATIC_FILES=true make dist/argo GIT_COMMIT=${GIT_COMMIT} GIT_TAG=${GIT_TAG} GIT_TREE_STATE=${GIT_TREE_STATE}
+
+####################################################################################################
+
+# Define base image as variable for easy maintenance
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4-1502 as argo-base
+
+RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
+
+# Create mime.types file for distroless compatibility
+RUN echo 'application/json json' > /etc/mime.types
+
+COPY hack/ssh_known_hosts /etc/ssh/
+COPY hack/nsswitch.conf /etc/
+
+####################################################################################################
+
+FROM argo-base as argoexec-nonroot
+
+USER 8737
+
+COPY --chown=8737 --from=argoexec-build /go/src/github.com/argoproj/argo-workflows/dist/argoexec /bin/
+
+ENTRYPOINT [ "argoexec" ]
+
+####################################################################################################
+FROM argo-base as argoexec
+
+COPY --from=argoexec-build /go/src/github.com/argoproj/argo-workflows/dist/argoexec /bin/
+
+ENTRYPOINT [ "argoexec" ]
+
+####################################################################################################
+
+FROM argo-base as workflow-controller
+
+RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
+
+USER 8737
+
+COPY hack/ssh_known_hosts /etc/ssh/
+COPY hack/nsswitch.conf /etc/
+COPY --chown=8737 --from=workflow-controller-build /go/src/github.com/argoproj/argo-workflows/dist/workflow-controller /bin/
+
+ENTRYPOINT [ "workflow-controller" ]
+
+####################################################################################################
+
+FROM argo-base as argocli
+
+RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
+
+USER 8737
+
+WORKDIR /home/argo
+
+COPY hack/ssh_known_hosts /etc/ssh/
+COPY hack/nsswitch.conf /etc/
+COPY --from=argocli-build /go/src/github.com/argoproj/argo-workflows/dist/argo /bin/
+
+ENTRYPOINT [ "argo" ]
