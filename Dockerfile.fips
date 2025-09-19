@@ -83,7 +83,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 ####################################################################################################
 
 # Define base image as variable for easy maintenance
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4-1502 as argoexec-base
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4-1502 as argo-base
 
 RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
 
@@ -95,7 +95,7 @@ COPY hack/nsswitch.conf /etc/
 
 ####################################################################################################
 
-FROM argoexec-base as argoexec-nonroot
+FROM argo-base as argoexec-nonroot
 
 USER 8737
 
@@ -104,7 +104,7 @@ COPY --chown=8737 --from=argoexec-build /go/src/github.com/argoproj/argo-workflo
 ENTRYPOINT [ "argoexec" ]
 
 ####################################################################################################
-FROM argoexec-base as argoexec
+FROM argo-base as argoexec
 
 COPY --from=argoexec-build /go/src/github.com/argoproj/argo-workflows/dist/argoexec /bin/
 
@@ -112,7 +112,7 @@ ENTRYPOINT [ "argoexec" ]
 
 ####################################################################################################
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4-1502 as workflow-controller
+FROM argo-base as workflow-controller
 
 RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
 
@@ -126,7 +126,7 @@ ENTRYPOINT [ "workflow-controller" ]
 
 ####################################################################################################
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4-1502 as argocli
+FROM argo-base as argocli
 
 RUN microdnf update -y && microdnf install -y ca-certificates && microdnf clean all
 
