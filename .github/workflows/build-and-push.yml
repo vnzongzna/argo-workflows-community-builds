@@ -79,7 +79,7 @@ jobs:
           else
             echo "REGISTRY=ghcr.io" >> $GITHUB_ENV
           fi
-          
+
           # Set image namespace and login credentials based on registry
           if [ "${{ env.REGISTRY || 'ghcr.io' }}" = "ghcr.io" ]; then
             echo "IMAGE_NAMESPACE=ghcr.io/${{ github.repository }}" >> $GITHUB_ENV
@@ -205,6 +205,9 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set registry variables
         run: |
           if [ "${{ github.event.inputs.registry }}" != "" ]; then
@@ -232,6 +235,11 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ matrix.version }} https://github.com/argoproj/argo-workflows.git
           cd argo-workflows
+
+      - name: Replace Dockerfile with FIPS version
+        run: |
+          cd argo-workflows
+          cp ../Dockerfile.fips Dockerfile
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
