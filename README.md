@@ -80,7 +80,7 @@ Images are automatically built daily to track the latest Argo Workflows releases
 1. Checks for new releases from `argoproj/argo-workflows`
 2. Clones the source code for each new version  
 3. Builds all components (controller, executor, cli) with `GOEXPERIMENT=boringcrypto`
-4. Creates multi-architecture manifests for linux/amd64 and linux/arm64
+4. Creates multi-architecture manifests for linux/amd64, linux/arm64, linux/ppc64le, and linux/s390x (except argocli which excludes s390x)
 5. Pushes to the configured container registry
 
 ## New Architecture
@@ -114,7 +114,7 @@ This architecture provides a robust foundation for enterprise deployments while 
 These builds include BoringCrypto, Google's FIPS 140-2 validated cryptographic module. Key benefits:
 
 - **FIPS 140-2 Compliance**: Suitable for government and regulated environments
-- **Validated Cryptography**: Uses BoringSSL instead of Go's standard crypto packages
+- **Validated Cryptography**: Uses BoringSSL instead of Go's standard crypto packages  
 - **Same Functionality**: Drop-in replacement for standard Argo Workflows images
 - **Regular Updates**: Automatically tracks upstream releases
 
@@ -128,12 +128,16 @@ The images are built using the exact same process as upstream Argo Workflows:
 - Uses the same build targets: `workflow-controller`, `argocli`, `argoexec`, `argoexec-nonroot`
 - Follows the same multi-stage build process
 - Only adds the `GOEXPERIMENT=boringcrypto` build argument
-- Creates the same multi-architecture manifests (linux/amd64, linux/arm64)
+- Creates multi-architecture manifests (linux/amd64, linux/arm64, linux/ppc64le, linux/s390x) - argocli excludes s390x
 
 ## Supported Architectures
 
+All images are built with BoringCrypto FIPS support for:
+
 - linux/amd64
 - linux/arm64
+- linux/ppc64le (PowerPC 64-bit Little Endian)
+- linux/s390x (IBM Z & LinuxONE) - **Note: argocli is not available for s390x**
 
 ## Registry Support
 
